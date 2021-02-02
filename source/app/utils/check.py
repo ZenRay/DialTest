@@ -5,6 +5,8 @@
 import logging
 import sys
 import re
+import json
+import datetime
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from PyQt5 import QtCore, QtWidgets
 
@@ -27,12 +29,16 @@ def check_text(window, widget, wmsg=None):
     text = getattr(window, widget).text().strip()
     if not text:
         message = f"{widget} 内容缺失，请添加相关信息" if wmsg is None else wmsg
-        QtWidgets.QMessageBox.warning(window, title="警告", text=message)
-        logger.warn(f"{widget} 缺少相关配置内容")
+        logger.warn(f"{widget} 缺少相关配置内容: {message}")
         return False
-    if ('ip' in widget or 'host' in widget) and _IPisvalid(text):
-        QtWidgets.QMessageBox.warning(window, "警告", "Host 或者 IP 地址不合法")
-        return False
+    if ('ip' in widget or 'host' in widget):
+        if not _IPisvalid(text):
+            import ipdb; ipdb.set_trace()
+            logger.warn(f"{widget} 缺少相关配置内容或者 Host 或者 IP 地址不合法")
+            return False
+        else:
+            logger.debug(f"Host 或者 IP 地址监测通过")
+
     return True
 
 
@@ -45,3 +51,4 @@ def _IPisvalid(ip):
         """,re.X
     )
     return bool(pattern.match(ip))
+
