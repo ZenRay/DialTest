@@ -30,7 +30,7 @@ def load_config(window, parser):
     try:
         window.edit_area.setText(parser.get('communicator', 'area'))
         window.edit_unique_code.setText(parser.get('communicator', 'unique_code'))
-        window.edit_iptv.setText(parser.get('communicator', 'iptv_host'))
+        window.edit_iptv_host.setText(parser.get('communicator', 'iptv_host'))
         logger.info("加载配置信息成功")
     except (NoOptionError, NoSectionError) as err:
         logger.debug(f"加载配置信息失败，缺少配置信息: {err}")
