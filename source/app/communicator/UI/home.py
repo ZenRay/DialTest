@@ -64,9 +64,9 @@ class MainWindow:
         self.label_iptv.setAlignment(QtCore.Qt.AlignCenter)
         self.label_iptv.setObjectName("label_iptv")
 
-        self.edit_iptv = QtWidgets.QLineEdit(centralwidget)
-        self.edit_iptv.setGeometry(QtCore.QRect(100, 100, 221, 20))
-        self.edit_iptv.setObjectName("edit_iptv")
+        self.edit_iptv_host = QtWidgets.QLineEdit(centralwidget)
+        self.edit_iptv_host.setGeometry(QtCore.QRect(100, 100, 221, 20))
+        self.edit_iptv_host.setObjectName("edit_iptv")
 
         self.btn_save_config = QtWidgets.QPushButton(centralwidget)
         self.btn_save_config.setGeometry(QtCore.QRect(130, 140, 90, 31))
