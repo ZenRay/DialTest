@@ -33,7 +33,6 @@ def check_text(window, widget, wmsg=None):
         return False
     if ('ip' in widget or 'host' in widget):
         if not _IPisvalid(text):
-            import ipdb; ipdb.set_trace()
             logger.warn(f"{widget} 缺少相关配置内容或者 Host 或者 IP 地址不合法")
             return False
         else:
