@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import QMainWindow
 from .UI.home import MainWindow
 from ..utils.check import check_text
 from ..utils.adb import device_connected
-from ..utils import load_config
+from ..utils import load_config, write_config
 
 
 # 解析配置信息
@@ -85,6 +85,23 @@ class CheckConnect(Button):
         self._signal.emit(data)
 
 
+class StoreConfig(Button):
+    """保存配置按钮控件线程"""
+    def run(self):
+        try:
+            write_config(self.window, communicator_parser, _communicator_file)
+            # 写入配置成功信息提示
+            widget = {"title": "提示", "msg": "配置保存成功"}
+            status = True
+            
+        except Exception as err:
+            widget = {"title": "警告", "msg": f"配置保存失败，原因: {err}"}
+            status = False
+        finally:
+            data = json.dumps({"status": status, "widget": widget})
+            self._signal.emit(data)
+
+
 class Home(QMainWindow, MainWindow):
     def __init__(self, parent=None):
         super(Home, self).__init__(parent)
@@ -93,21 +110,27 @@ class Home(QMainWindow, MainWindow):
         # 加载配置信息
         load_config(self, communicator_parser)
 
-        # 创建按钮的监控事件
+        # 创建设备连接按钮的监控事件
         widgets = ["edit_area", "edit_iptv_host", "edit_unique_code"]
-        self.btn_check_connect.clicked.connect(partial(self._device_check, dict(alias="设备检查", widget=widgets)))
+        self.btn_check_connect.clicked.connect(partial(self._click_event, dict(alias="设备检查", widget=widgets), \
+            CheckConnect))
         
+        # 创建配置保存按钮的监控事件
+        self.btn_save_config.clicked.connect(partial(self._click_event, \
+            dict(alias="保存配置", widget="btn_save_config"), StoreConfig))
 
-    def _device_check(self, widget_mapping):
-        """创建点击设备按钮监控
+
+    def _click_event(self, widget_mapping, func):
+        """创建按钮点击监控事件
         
         args:
         ------------
         widget_mapping: dict，键是触发控件的文本名称，值是控件属性名或者属性名的列表
+        func: function，提供功能的函数或类
         """
         widget = widget_mapping.get("widget", "")
         name = f"{widget}_thread" if not isinstance(widget, list) else "thread"
-        setattr(self, name, CheckConnect(self, **widget_mapping))
+        setattr(self, name, func(self, **widget_mapping))
         thread = getattr(self, name)
         thread._signal.connect(self.callback)
 
