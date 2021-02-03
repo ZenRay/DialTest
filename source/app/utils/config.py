@@ -44,14 +44,15 @@ def write_config(window, parser, file):
     try:
         area = window.edit_area.text()
         unique_code = window.edit_unique_code.text()
-        iptv_host = window.edit_iptv.text()
+        iptv_host = window.edit_iptv_host.text()
 
         parser.set('communicator', 'area', str(area))
         parser.set('communicator', 'unique_code', str(unique_code))
         parser.set('communicator', 'iptv_host', str(iptv_host))
 
         # 写回文件
-        parser.write(file)
+        with open(file, "w", encoding="utf8") as pfile:
+            parser.write(pfile)
         logger.info(f"信息写入文件到{file}")
     except Exception as err:
         logger.debug(f"写入信息失败: {err}", exc_info=sys.exc_info())
