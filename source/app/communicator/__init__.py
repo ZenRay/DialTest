@@ -25,7 +25,7 @@ communicator_parser.read(_communicator_file, encoding="utf8")
 logger = logging.getLogger("app")
 
 
-class CheckTextThread(QtCore.QThread):
+class CheckConnect(QtCore.QThread):
     """线程监听形式检查文本内容"""
     _signal = QtCore.pyqtSignal(str)
     
@@ -86,7 +86,7 @@ class Home(QMainWindow, MainWindow):
         """
         widget = widget_mapping.get("widget", "")
         name = f"{widget}_thread" if not isinstance(widget, list) else "thread"
-        setattr(self, name, CheckTextThread(self, **widget_mapping))
+        setattr(self, name, CheckConnect(self, **widget_mapping))
         thread = getattr(self, name)
         thread._signal.connect(self.callback)
 
