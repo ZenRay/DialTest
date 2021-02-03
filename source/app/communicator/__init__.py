@@ -50,20 +50,18 @@ class CheckTextThread(QtCore.QThread):
             status = check_text(self.window, self.widget)
         elif isinstance(self.widget, list):
             status = all(check_text(self.window, widget) for widget in self.widget)
-        data = json.dumps({"time": time, "status": status})
-        self._signal.emit(data)
+        
+        # 检测状态失败才发送数据
+        if status:
+            logger.debug(f"'{self._alias}' 控件 Text 内容监测通过，申请时间: {time}")
+        else:
+            logger.error(f"'{self._alias}' 在 {time} 监测内容失败")
+            widget = {"title": "警告", "msg": "缺失配置信息"}
+            data = json.dumps({"status": status, "widget": widget})
+            self._signal.emit(data)
+            return 
     
 
-    def callback(self, msg):
-        """回调函数
-
-        用于处理运行后程序， msg 是一个 JSON 数据
-        """
-        data = json.loads(msg)
-        if data['status']:
-            logger.debug(f"'{self._alias}' 控件 Text 内容监测通过，申请时间: {data['time']}")
-        else:
-            logger.error(f"'{self._alias}' 在 {data['time']} 监测内容失败")
 
 
 class Home(QMainWindow, MainWindow):
@@ -90,6 +88,20 @@ class Home(QMainWindow, MainWindow):
         name = f"{widget}_thread" if not isinstance(widget, list) else "thread"
         setattr(self, name, CheckTextThread(self, **widget_mapping))
         thread = getattr(self, name)
-        thread._signal.connect(thread.callback)
+        thread._signal.connect(self.callback)
 
         thread.start()
+
+
+    def callback(self, msg):
+        """回调函数
+
+        用于处理运行后程序， msg 是一个 JSON 数据:
+        status: bool，运行状态
+        widget: dict, 窗口信息，包括 title 和 msg，分别表示窗口标题和提示信息
+        
+        """
+        data = json.loads(msg)
+        if not data['status']:
+            QtWidgets.QMessageBox.warning(self, data['widget']['title'], data['widget']['msg'])
+        
