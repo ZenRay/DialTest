@@ -87,3 +87,23 @@ def _url_valid(url):
         raise exceptions.InvalidURL('URL has an invalid label.')
 
 
+
+def _args_valid(keywords, **kwargs):
+    """检查关键字参数是否在限定的参数中
+    
+    Args:
+    ---------
+    keywords: sequence，需要检验的参数序列
+    kwargs: dict, 需要检验的关键字参数
+
+    Results
+    --------
+    返回布尔值，参数全部满足返回 True，否则返回 False
+    """
+    result = True
+    for key in keywords:
+        if key not in kwargs:
+            logger.debug(f"关键字参数 '{key}' 缺失")
+            result = False
+    
+    return result
