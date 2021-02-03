@@ -25,11 +25,9 @@ communicator_parser.read(_communicator_file, encoding="utf8")
 
 logger = logging.getLogger("app")
 
-
-class CheckConnect(QtCore.QThread):
-    """线程监听形式检查文本内容"""
+class Button(QtCore.QThread):
+    """按钮控件线程"""
     _signal = QtCore.pyqtSignal(str)
-    
     def __init__(self, window, widget, alias=None):
         """线程初始化
 
@@ -45,6 +43,8 @@ class CheckConnect(QtCore.QThread):
         
 
 
+class CheckConnect(Button):
+    """线程监听形式检查文本内容"""
     def run(self):
         host = None
         host_label = ""
