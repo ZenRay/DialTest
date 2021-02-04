@@ -53,6 +53,6 @@ def write_config(window, parser, file):
         # 写回文件
         with open(file, "w", encoding="utf8") as pfile:
             parser.write(pfile)
-        logger.info(f"信息写入文件到{file}")
+        logger.info(f"信息写入文件: '{file}'")
     except Exception as err:
         logger.debug(f"写入信息失败: {err}", exc_info=sys.exc_info())
