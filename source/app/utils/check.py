@@ -5,7 +5,7 @@
 import urllib3
 import aiohttp
 
-from urllib3 import exceptions
+from requests import exceptions
 import logging
 import sys
 import re
@@ -85,6 +85,8 @@ def _url_valid(url):
         raise exceptions.InvalidURL('URL has an invalid label.')
     elif host.startswith('*'):
         raise exceptions.InvalidURL('URL has an invalid label.')
+
+    return True
 
 
 
