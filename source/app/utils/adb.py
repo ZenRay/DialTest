@@ -21,7 +21,7 @@ def device_connected(serial):
 
     Results:
     ---------
-    返回布尔值
+    连接不成功，返回布尔值；成功则返回 device
     """
     result = False
     if isinstance(serial, str) and _IPisvalid(serial):
@@ -35,7 +35,7 @@ def device_connected(serial):
         msg = device.say_hello()
         serial = device.serial
         logger.debug(f"'{serial}' 连接设备成功: {msg}")
-        result = True
+        result = device
     except adbutils.AdbError as error:
         logger.error(f"设备 {serial} 连接不成功")
 
@@ -68,9 +68,13 @@ def setup_package(device, package):
 
     Args:
     --------
-    device: adbutils.AdbDevice, 连接的 Android 设备
+    device: adbutils.AdbDevice 或者 host, 连接的 Android 设备
     package: str，需要检查的 package 名称, eg: com.hzjy.svideo
+
     """
+    if isinstance(device, str):
+        device = device_connected(device)
+        
     try:
         device.app_start(package)
         logger.info(f"'{package}' 正常启动")
