@@ -26,8 +26,13 @@ def device_connected(serial):
     result = False
     if isinstance(serial, str) and _IPisvalid(serial):
         device = adbutils.adb.device(serial)
+        adbutils.adb.connect(serial)
     elif isinstance(serial, adbutils.AdbDevice):
         device = serial
+        # 未连接设备重连接
+        if not any([serial == device.serial for device in \
+            adbutils.adb.device_list()]):
+            adbutils.adb.connect(serial.serial)
     else:
         logger.error(f"设备检查仅通过字符串或者 device，不能通过{serial}") 
 
