@@ -18,8 +18,7 @@ TEMP = path.join(path.dirname(__file__), "../../../temp")
 
 DIRECTIONS_MAPPING = {
     "x": lambda x: "right" if x > 0 else "left",
-    "y": lambda y: "down" if y > 0 else "down",
-    "z": lambda z: "enter" if z == 1 else None
+    "y": lambda y: "down" if y > 0 else "down"
 }
 
 class EPGTaskExecute:
@@ -56,9 +55,10 @@ class EPGTaskExecute:
         ---------
         name: 文件名称，需要全路径名
         rect: list, 截取的方框序列，顺序为 [top, right, down, left]
-        copy: bool, 如果为 True，那需要保存副本，否则不保存
+        copy: bool, 如果为 True，那需要保存副本，否则不保存，副本名称使用 md5 加密时
+            当前间戳获取
         """
-        if not os.exists(name):
+        if not path.exists(name):
             raise FileNotFoundError(f"图片不存在")
         array = cv2.imread(name)
         # BGR to RGB
@@ -71,10 +71,9 @@ class EPGTaskExecute:
             time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S").encode()
             new, extension = path.splitext(name)
             new += hashlib.md5(time).hexdigest()
-            cv2.imwrite(new+extension, shape)
+            cv2.imwrite(new + extension, shape)
         
         return shape
-        
 
             
     def cursor_move(self, direction, point):
@@ -84,5 +83,41 @@ class EPGTaskExecute:
         只能表示移动方向的值，eg: 'up', 'left' 等
         """
         for step in range(math.abs(point)):
-            adb.remote_control(self.device, direction)
+            if not hasattr(self, direction):
+                raise ValueError(f"方向移动错误，不能以 '{direction}' 方式移动")
 
+            getattr(self, direction)
+
+
+    
+    def _click_cursor(self):
+        """点击光标
+        
+        发送确认键
+        """
+        self.enter
+
+    
+    @property
+    def enter(self):
+        adb.remote_control(self.device, "enter")
+
+    
+    @property
+    def left(self):
+        adb.remote_control(self.device, "left")
+    
+
+    @property
+    def right(self):
+        adb.remote_control(self.device, "right")
+
+
+    @property
+    def up(self):
+        adb.remote_control(self.device, "up")
+
+    
+    @property
+    def down(self):
+        adb.remote_control(self.device, "down")
