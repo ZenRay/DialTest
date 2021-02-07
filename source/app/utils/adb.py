@@ -4,6 +4,8 @@
 """
 import adbutils
 import logging
+from os import path
+import subprocess
 
 from .check import _IPisvalid
 from ._key_codes import keycodes
@@ -113,3 +115,16 @@ def remote_control(device, key):
         logger.debug(f"成功输入键: {key.alias}")
     except Exception as err:
         logger.error(f"键 '{key.alias}' 输入响应失败")
+
+
+def catpture_current_screen(name, cwd=None):
+    """使用 adbutils 模块截图"""
+    if cwd is None:
+        cwd = path.abspath(path.curdir)
+
+    cmd = f"python -m adbutils --screenshot {name}"
+    (stdout, stderr) = subprocess.Popen(cmd, shell=True, cwd=cwd, \
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, \
+                    stderr=subprocess.STDOUT).communicate()
+    
+    return stdout, stderr
