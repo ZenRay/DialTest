@@ -75,3 +75,14 @@ class EPGTaskExecute:
         
         return shape
         
+
+            
+    def cursor_move(self, direction, point):
+        """移动光标
+
+        根据 direction 确认需要移动的方向，point 需要移动的步数。direction 字符串
+        只能表示移动方向的值，eg: 'up', 'left' 等
+        """
+        for step in range(math.abs(point)):
+            adb.remote_control(self.device, direction)
+
