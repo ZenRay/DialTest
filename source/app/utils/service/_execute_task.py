@@ -47,3 +47,31 @@ class EPGTaskExecute:
         return filename
 
 
+    def crop_rectangle(self, name, rect, copy=False):
+        """截取图片数据
+        
+        利用 OpenCV 读取图片为 ndarray 之后，切片获取数据。
+
+        Args:
+        ---------
+        name: 文件名称，需要全路径名
+        rect: list, 截取的方框序列，顺序为 [top, right, down, left]
+        copy: bool, 如果为 True，那需要保存副本，否则不保存
+        """
+        if not os.exists(name):
+            raise FileNotFoundError(f"图片不存在")
+        array = cv2.imread(name)
+        # BGR to RGB
+        array = cv2.cvtColor(array, cv2.COLOR_BGR2RGB)
+
+        top, right, down, left = rect
+        shape = array[left:right, top:down, :]
+
+        if copy:
+            time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S").encode()
+            new, extension = path.splitext(name)
+            new += hashlib.md5(time).hexdigest()
+            cv2.imwrite(new+extension, shape)
+        
+        return shape
+        
