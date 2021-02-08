@@ -3,27 +3,62 @@
 解决报告结果的模块
 """
 import logging
-import os
+import copy
 import aiohttp
 import uuid
-
+import datetime
 
 from io import BytesIO
 from PIL import Image
 from os import path
-
+from configparser import ConfigParser
 
 from ._base import Request
-from ..check import _url_valid, _args_valid
+from ..check import _url_valid
+from .._error_codes import error_codes
+
+
+# 获取进度报告相关的接口
+_target = path.join(path.dirname(__file__), "../../config")
+
+parser = ConfigParser()
+parser.read(path.join(_target, "report.ini"), encoding="utf8")
+
+# 报告类接口
+_urls = dict(
+    task_start_url = parser.get("report", "task_start"),
+    task_end_url = parser.get("report", "task_end"),
+    capture_start_url = parser.get("report", "capture_start"),
+    capture_end_url = parser.get("report", "capture_end"),
+    file_upload_url = parser.get("report", "file_upload"),
+    result_upload_url = parser.get("report", "result_upload"),
+)
+
+# =====TODO: 添加 Host，后期需要删除
+with open(path.join(_target, "url.txt"), "r", encoding="utf8") as file:
+    # import ipdb; ipdb.set_trace()
+    base = [line.strip() for line in file.readlines()]
+    _urls['task_start_url'] = _urls['task_start_url'].format(base[0])
+    _urls['task_end_url'] = _urls['task_end_url'].format(base[0])
+    _urls['capture_start_url'] = _urls['capture_start_url'].format(base[0])
+    _urls['capture_end_url'] = _urls['capture_end_url'].format(base[0])
+    _urls['file_upload_url'] = _urls['file_upload_url'].format(base[0])
+    _urls['result_upload_url'] = _urls['result_upload_url'].format(base[0])
+
+
+## ========
 
 
 
-logger = logging.getlogger("app.service.report")
+logger = logging.getLogger("app.service.report")
 
 
-class TaskReport(Request):
-    """统一管理任务报告"""
+class TaskStatusReport(Request):
+    """统一管理任务进度报告"""
     def __init__(self, **kwargs):
+        if not kwargs:
+            kwargs = _urls
+
         for key, url in kwargs.items():
             if _url_valid(url):
                 setattr(self, f"_{key}", url)
@@ -75,12 +110,12 @@ class TaskReport(Request):
 
 
     @property
-    def data_upload_url(self):
+    def result_upload_url(self):
         """截图任务开始接口"""
-        if hasattr(self, "_data_upload_url"):
+        if hasattr(self, "_result_upload_url"):
             return self._data_upload_url
         else:
-            raise AttributeError(f"不存在 data_upload_url 属性")
+            raise AttributeError(f"不存在 result_upload_url 属性")
 
 
     async def task(self, url, id, type="开始"):
@@ -162,3 +197,41 @@ class TaskReport(Request):
         return response
 
 
+
+    async def upload_report(self, task_info, errors, type):
+        """提交检测结果
+
+        将播测任务信息、错误信息、错误类型，错误标题以及预警信息提交
+        
+        Args:
+        -------
+        task_info: dict, 是播测任务的任务信息，由任务请求获取道
+        errors: list, 错误源，本地保存的图片路径及文件名
+        type: str, 错误类型，是错误类型编码数据例如 'ID0004'
+        """
+        # 需要将错误的图片上传，获取到 URL 位置值
+        location = []
+        report = copy.deepcopy(task_info)
+        for error in errors:
+            res = await self.upload_image_file(error)
+
+            if res.get("text"):
+                location.append(res.get("text"))
+            else:
+                logger.error(f"上传报告图片失败")
+        
+        report['contentCode'] = error_codes[type].title
+        report['contentName'] = error_codes[type].title
+        report['earlyWarnTypeCode'] = type.upper()
+        report['mediaContent'] = ''
+        report['mediaType'] = 1
+        report['desc'] = error_codes[type].message
+        report['dialCollectionStatus'] = len(location)
+        report['sendRequestTime'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        report['sumDialCount'] = 1
+        report['screenshotPictureAttr'] = location
+
+        del report['id']
+
+        response = await self.request(self.result_upload_url, json=report)
+        return response
