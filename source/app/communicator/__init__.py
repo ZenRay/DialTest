@@ -11,19 +11,24 @@ from configparser import ConfigParser
 from functools import partial
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import pyqtSignal
-
 from PyQt5.QtWidgets import QMainWindow
+import ipdb
 
 
 from .UI.home import MainWindow
 from ..utils.check import check_text
 from ..utils import adb
 from ..utils import load_config, write_config
-from ..utils.service import Heart, NORM_RATE, ABNORM_RATE, DialTask
+from ..utils.service import (Heart, NORM_RATE, ABNORM_RATE, DialTask, \
+    EPGTaskExecute, Task)
+from ..utils.service import report
+
+# TODO: 开发阶段-暂不直接直接调用，未解决 minicap 配置问题
+from ..utils._adb import CaptureScreen
 
 
 # 解析配置信息
-_communicator_file = path.join(path.dirname(__file__), "../config/communicator.ini")
+_communicator_file = path.abspath(path.join(path.dirname(__file__), "../config/communicator.ini"))
 communicator_parser = ConfigParser()
 communicator_parser.read(_communicator_file, encoding="utf8")
 
@@ -33,6 +38,9 @@ logger = logging.getLogger("app")
 _Queue = asyncio.Queue(20)
 
 
+
+# 提供报告状态相关方法
+reporter = report.TaskStatusReport()
 
 class Button(QtCore.QThread):
     """按钮控件线程"""
@@ -83,7 +91,7 @@ class CheckConnect(Button):
     
         # 检查设备连接情况
         if host:
-            device = adb.device_connected(host)
+            device = adb.device_connected(host, True)
             if device:
                 widget = {"title": "提示", "msg": "设备连接成功"}
             else:
@@ -123,7 +131,7 @@ class DialService(Button):
         # 播测任务请求相关配置
         self.task_url = kwargs.pop("dial_url") 
         self.task_method = kwargs.get("task_method", "POST")
-        post_data = ["areaCode"]
+        post_data = ["deviceCode"] #["areaCode", "uniqueCode"]
         self.task_data = self.set_params(keys=post_data, **kwargs)
         self.device_serial = kwargs.get("device_serial")
         self.app_id = kwargs.get("app") # 需要启动的程序 id，例如:com.hzjy.svideo
@@ -180,51 +188,149 @@ class DialService(Button):
 
 
     def run(self):
-        #TODO: 后续需要采用设备序列号缺失情况下，返回相关信息，采取回调机制处理
         if not self.device_serial:
             logger.error(f"缺少设备 Host")
-    
-        self.device = adb.device_connected(self.device_serial)
+        
+        # 如果设备在其中，那么不进行重连接
+        self.device = adb.device_connected(self.device_serial, reconnected=True)
 
         if adb.check_package(self.device, self.app_id):
             logger.debug(f"启动应用页面成功: {self.app_id}")
             adb.setup_package(self.device, self.app_id)
 
-        # 消费者生产者模式
-        asyncio.run(self.product(), debug=False)
-        # asyncio.run(self.consum(), debug=True)
+        asyncio.run(self.execute(), debug=False)
 
         data = json.dumps({'status':False, 'widget': ""})
         self._signal.emit(data)
 
 
-    async def product(self, **kwargs):
+    async def execute(self, **kwargs):
         """任务队列生产者"""
         while self.forever:
-            result = await self._heart.beat(data=self.heart_data)
-            task = await self._task.request(method=self.task_method, \
-                data=self.task_data)
+            await self._heart.beat(data=self.heart_data)
+            response = await self._task.request(method=self.task_method, \
+                json=self.task_data)
             # 根据返回的任务详情安排后续播测流程
-            if int(task['code']) != 200:
-                fmt = f"任务请求出错，状态码 '{task['code']}', 链接 '{self.task_url}'"
+            if int(response['code']) != 200:
+                fmt = f"任务请求出错，状态码 '{response['code']}', 链接 '{self.task_url}'"
                 raise ConnectionError(fmt)
-            
-            # if not task['data'].get("dialPlanTask"):
-            #     logger.info(f"没有播测任务，{ABNORM_RATE}s 之后重试")
-            #     self.heart_rate = ABNORM_RATE
-            #     time.sleep(ABNORM_RATE)
-            #     continue
-            if task['data'].get("dialPlanTask"):
+
+            if not response['data'].get("dialPlanTask"):
+                logger.info(f"没有播测任务，{ABNORM_RATE}s 之后重试")
+                self.heart_rate = ABNORM_RATE
+                time.sleep(ABNORM_RATE)
+                continue
+
+            task = Task(response)
+            if task['data.dialPlanTask']:
                 self.heart_rate = NORM_RATE
-    
-            else:
                 # 应用修改之后需要重新启动
                 app_id = kwargs.get("app_id")
                 if app_id and self.device.current_app()['package'] != app_id:
-                    logger.debug(f"启动应用页面成功: '{app_id}'")
                     adb.setup_package(self.device, self.app_id)
-                import ipdb; ipdb.set_trace()
+                    logger.debug(f"切换应用页面成功: '{app_id}'")
+                    
+                taskReport = None
+                try:
+                    # 提交任务开始报告
+                    await reporter.task(
+                        reporter.task_start_url, task['data.dialPlanTask.id'],
+                        type="开始", headers={'Content-Type': 'application/json'}
+                    )
 
+                    if task['data.dialTemplateResponse.dialTemplate'] is not None:
+                        # 根据模板以及终端差异解决不同任务
+                        terminal = task['data.dialTemplateResponse.dialTemplate.tempTerminal']
+    
+                        # 任务结果需要提交的基础数据以及可能是请求需要的数据
+                        taskReport = task['data.dialPlanTask']
+                        taskReport['deviceCode'] = self.heart_data["deviceCode"]
+                        taskReport['templateId'] = task['data.dialTemplateResponse.dialTemplate.id']
+                        taskReport['planTaskId'] = task['data.dialPlanTask.id']                       
+                        # ipdb.set_trace()
+                        if terminal == 'plan_terminal_01':
+                            # 解决 EPG 播测任务
+                            epgtask = EPGTaskExecute(self.device)
+                            errors = []
+                            # 处理任务中 page_list 信息
+                            for page in task['data.dialTemplateResponse.pageList']:
+                                # 获取当前页面的名称，并且从起始页面移动根据 操作流程移动到目标页面
+                                name = page['pageName']
+                                xs = [elem['valueX'] for elem in page['processList']]
+                                ys =[elem['valueY'] for elem in page['processList']] 
+                                zs = [elem['valueZ'] for elem in page['processList']]
+                                
+                                # TODO: Navigation
+                                taskReport['navigation'] = name
+                                # 关闭应用之后，回滚到初始启动页面，根据流程移动
+                                package = self.device.current_app()['package']
+                                if package in [self.app_id, app_id]:
+                                    self.device.app_clear(package)
+                                epgtask.rollback(
+                                    package, xs, ys, zs, name
+                                )
+
+                                # 截取当前页面任务-并且保存文件名称
+                                time.sleep(2)
+                                # TODO: 截屏任务出现问题，不能提交任务，需要确认是接口需要具体的值
+                                # await reporter.capture(
+                                #     reporter.capture_start_url, taskReport['planTaskId']
+                                # )
+                                name = f"tid_{taskReport['planTaskId']}_tempid_{taskReport['templateId']}.png"
+                                screen_file = epgtask.capture_screen(name)
+
+                                # await reporter.capture(
+                                #     reporter.capture_start_url, taskReport['planTaskId'], "结束"
+                                # )
+
+                                # 处理画框的内容
+                                for frame in page['positionList']:
+                                    frame_id = frame['id']
+                                    x = int(frame['valueX'])
+                                    y = int(frame['valueY'])
+                                    z = int(frame['valueZ'])
+
+                                    epgtask.process(x, y, z)
+                                    # 边框位置值，top, right, bottom, left
+                                    rect = [int(frame[f'{key}Point']) for key in ['y1', 'x2', 'y2', 'x1']]
+                                    # 该框内需要处理的任务类型: 
+                                    # 1: 情色文字检测（包括进行 OCR 和文本检测两个步骤
+                                    # 2: 图片检测（包括检测图片缺失以及 情色图片检测
+                                    # 3: 视频检测，目前暂未确认需要检测需求和检测方案
+                                    task_type = int(frame['infoType'])
+                                    array, _copy, _fraw = \
+                                        epgtask.crop_rectangle(screen_file, rect, True, True)
+                                    
+                                    reports = await epgtask.task_bullet(task_type, _copy)
+
+                                    # 添加画框图片
+                                    for index in range(len(reports)):
+                                        reports[index] = reports[index]._replace(ffile=_fraw)
+
+                                    if reports:
+                                        errors.extend(reports)
+                                
+                            # 提交异常错误信息
+                            for err in errors:
+                                await reporter.upload_report(taskReport, err)
+                            
+
+                        elif terminal == 'plan_terminal_02':
+                            # TODO: 解决 APK 播测任务
+                            pass
+                    else:
+                        msg = f"{task['data.dialPlanTask.id']} 未获取到任务，请检查配置信息"
+                        logger.error(msg)
+                        continue
+                finally:
+                    # 需要处理执行最终完成相关任务结束的报告
+                    if taskReport is not None:
+                        time.sleep(2)
+                        # ipdb.set_trace()
+                        await reporter.task(
+                            reporter.task_end_url, taskReport['planTaskId'],
+                            type="结束", headers={'Content-Type': 'application/json'}
+                        )
 
         
 
@@ -328,7 +434,7 @@ class Home(QMainWindow, MainWindow):
             self.service_event.device_serial = self.edit_iptv_host.text().strip()
             # 更新需要启动的应用 ID
             self.service_event.app_id = kwargs.get("app_id", self.app_id)
-
+            self.service_event.forever = True
             # 启动服务
             self.service_event._signal.connect(self.callback)
             self.service_event.start()
