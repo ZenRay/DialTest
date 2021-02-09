@@ -7,7 +7,7 @@ import copy
 import aiohttp
 import uuid
 import datetime
-
+import json
 from io import BytesIO
 from PIL import Image
 from os import path
@@ -36,7 +36,6 @@ _urls = dict(
 
 # =====TODO: 添加 Host，后期需要删除
 with open(path.join(_target, "url.txt"), "r", encoding="utf8") as file:
-    # import ipdb; ipdb.set_trace()
     base = [line.strip() for line in file.readlines()]
     _urls['task_start_url'] = _urls['task_start_url'].format(base[0])
     _urls['task_end_url'] = _urls['task_end_url'].format(base[0])
@@ -113,12 +112,12 @@ class TaskStatusReport(Request):
     def result_upload_url(self):
         """截图任务开始接口"""
         if hasattr(self, "_result_upload_url"):
-            return self._data_upload_url
+            return self._result_upload_url
         else:
             raise AttributeError(f"不存在 result_upload_url 属性")
 
 
-    async def task(self, url, id, type="开始"):
+    async def task(self, url, id, type="开始", **kwargs):
         """提交任务报告
         
         通过 POST 方法提交任务ID，该 ID 在提出请求的任务响应的数据值为 planTaskId
@@ -130,12 +129,12 @@ class TaskStatusReport(Request):
         type: 任务类型，分为开始和结束
         """
         data = {'planTaskId': id}
-        result = await super().request(self.task_start_url, json=data)
+        result = await super().request(url, json=data, **kwargs)
 
-        if int(result.code) == 200 and result.get("surccess"):
-            logger.info(f"{id} 播测任务{type}，状态修改成功")
+        if int(result['code']) == 200 and result.get("success"):
+            logger.info(f"任务序列号 {id}: 播测任务{type}，状态修改成功")
         else:
-            logger.error(f"{id} 播测任务{type}，状态修改失败")
+            logger.error(f"任务序列号 {id}: 播测任务{type}，状态修改失败")
         
         return result.get("surccess")
     
@@ -161,12 +160,12 @@ class TaskStatusReport(Request):
                     raise Exception(f"'{key}' 参数缺失，不能提交结束任务")
                 data[key] = kwargs[key]
         
-        result = await super().request(self.task_start_url, json=data)
+        result = await super().request(url, json=data)
 
-        if int(result.code) == 200 and result.get("surccess"):
-            logger.info(f"{id} 截屏任务{type}，状态修改成功")
+        if int(result['code']) == 200 and result.get("success"):
+            logger.info(f"截图序列: {id} 截屏任务{type}，状态修改成功")
         else:
-            logger.error(f"{id} 截屏任务{type}，状态修改失败")
+            logger.error(f"截图序列: {id} 截屏任务{type}，状态修改失败")
         
         return result.get("surccess")
 
@@ -179,26 +178,30 @@ class TaskStatusReport(Request):
         """
         image = Image.open(file)
         _, extension = path.splitext(file)
+        if "jpg" in extension.lower():
+            format = "JPEG"
+        else:
+            format = extension.replace(".", "").upper()
         # 根据缩放比例将图像高和宽按比例缩放
         width, height = image.size
         image.thumbnail((int(width * scale), int(height * scale)))
 
         # 保存图像数据为字节型数据
         buffer = BytesIO()
-        image.save(buffer, extension.upper())
+        image.save(buffer, format)
 
         data = aiohttp.FormData()
-        data.add_field("file", buffer.getvalue(), filename=uuid.uuid4().hex, \
-            content_type=extension.lower())
-
+        data.add_field("file", buffer.getvalue(), content_type=format.lower(),  
+            filename=uuid.uuid4().hex + f".{format.lower()}")
+        
         response = await super().request(self.file_upload_url, data=data)
         
-        # TODO: 这里还有一个请求响应数据，需要后续检验一次具体的值是什么
+        # 直接得到的是 URI 文本
         return response
 
 
 
-    async def upload_report(self, task_info, errors, type):
+    async def upload_report(self, task_info, error):
         """提交检测结果
 
         将播测任务信息、错误信息、错误类型，错误标题以及预警信息提交
@@ -206,32 +209,42 @@ class TaskStatusReport(Request):
         Args:
         -------
         task_info: dict, 是播测任务的任务信息，由任务请求获取道
-        errors: list, 错误源，本地保存的图片路径及文件名
-        type: str, 错误类型，是错误类型编码数据例如 'ID0004'
+        errors: ERROR 对象, 包括字段
+            * file:裁切后用户分析的文件路径
+            * code: 错误代码
+            * text: 文本内容，用列表存储
+            * position: 在图片中标注出的位置点，用列表存储
+            * ffile: 画框标注的图片
         """
         # 需要将错误的图片上传，获取到 URL 位置值
-        location = []
         report = copy.deepcopy(task_info)
-        for error in errors:
-            res = await self.upload_image_file(error)
-
-            if res.get("text"):
-                location.append(res.get("text"))
-            else:
-                logger.error(f"上传报告图片失败")
+        del report['id']
         
-        report['contentCode'] = error_codes[type].title
-        report['contentName'] = error_codes[type].title
-        report['earlyWarnTypeCode'] = type.upper()
+        res = await self.upload_image_file(error.ffile)
+
+        if not res:
+            logger.error(f"上传报告图片失败")
+        
+        report['contentCode'] = error_codes[error.code].title
+        report['contentName'] = error_codes[error.code].title
+        report['earlyWarnTypeCode'] = error.code.upper()
         report['mediaContent'] = ''
         report['mediaType'] = 1
-        report['desc'] = error_codes[type].message
-        report['dialCollectionStatus'] = len(location)
+        report['desc'] = error_codes[error.code].message
+        report['dialCollectionStatus'] = 1 if len(error.text) < 1 else len(error.text)
         report['sendRequestTime'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         report['sumDialCount'] = 1
-        report['screenshotPictureAttr'] = location
+        report['screenshotPictureAttr'] = [res]
 
-        del report['id']
-
-        response = await self.request(self.result_upload_url, json=report)
+        headers = {'Content-Type': 'application/json'}
+        
+       
+        response = await self.request(self.result_upload_url, data=json.dumps(report), headers=headers)
+        msg = f"播测任务序列号:{report['dialPlanId']} 播测模板:{report['dialTemplate']} "
+        if int(response['code']) == 200:
+            status = "成功" if response.get('success', False) else "失败"
+            logger.debug(f"检测完成，{msg}任务上报{status}，响应信息: {response['messages']}")
+        else:
+            logger.error(f"检测完成，{msg}任务不能上传，信息: {response}")
+        
         return response

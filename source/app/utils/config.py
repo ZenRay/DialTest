@@ -7,7 +7,7 @@
 import logging
 import sys
 from configparser import ConfigParser, NoOptionError, NoSectionError
-from PyQt5 import QtCore, QtWidgets
+from os import path
 
 
 logger = logging.getLogger("app.config")
