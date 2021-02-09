@@ -14,12 +14,13 @@ from ._key_codes import keycodes
 
 logger = logging.getLogger("app.adb")
 
-def device_connected(serial):
+def device_connected(serial, reconnected=False):
     """检查 Android 设备连接状态
 
     Args:
     ---------
     serial: str, adbutils.AdbDevice 设备 IP 地址或者设备
+    reconnected: bool, 未连接的情况下是否需要重新连接
 
     Results:
     ---------
@@ -28,23 +29,25 @@ def device_connected(serial):
     result = False
     if isinstance(serial, str) and _IPisvalid(serial):
         device = adbutils.adb.device(serial)
-        adbutils.adb.connect(serial)
     elif isinstance(serial, adbutils.AdbDevice):
         device = serial
+    else:
+        raise TypeError(f"设备检查仅通过字符串或者 device，不能通过{serial}") 
+
+    # 需要重连接时，在检测
+    if reconnected:
         # 未连接设备重连接
         if not any([serial == device.serial for device in \
             adbutils.adb.device_list()]):
-            adbutils.adb.connect(serial.serial)
-    else:
-        logger.error(f"设备检查仅通过字符串或者 device，不能通过{serial}") 
+            adbutils.adb.connect(device.serial)
 
-    try:
-        msg = device.say_hello()
-        serial = device.serial
-        logger.debug(f"'{serial}' 连接设备成功: {msg}")
-        result = device
-    except adbutils.AdbError as error:
-        logger.error(f"设备 {serial} 连接不成功")
+        try:
+            msg = device.say_hello()
+            serial = device.serial
+            logger.debug(f"'{serial}' 连接设备成功: {msg}")
+            result = device
+        except adbutils.AdbError as error:
+            logger.error(f"设备 {serial} 连接不成功")
 
     return result
 
@@ -62,7 +65,13 @@ def check_package(device, package):
     存在 package 则 True，反之为 False
     """
     result = False
-    if not(device_connected(device) or device_connected(device.serial)):
+    # 满足其中一个条件需要重连：device 是 adbdevice 但是不能连接，或者 device 是字符串
+    condition1 = isinstance(device, adbutils.AdbDevice) and not device.say_hello()
+    condition2 = isinstance(device, str)
+    if condition1 or condition2:
+        device = device_connected(device, True) or device_connected(device, True)
+    
+    if not device:
         logger.error(f"设备 '{device.serial}' 尝试两次连接失败，请检查设备 ADB 调试状态")
     
     result = any(package in name for name in device.list_packages())
@@ -70,17 +79,17 @@ def check_package(device, package):
 
 
 
-def setup_package(device, package):
+def setup_package(device, package, reconnected=False):
     """启动 package
 
     Args:
     --------
     device: adbutils.AdbDevice 或者 host, 连接的 Android 设备
     package: str，需要检查的 package 名称, eg: com.hzjy.svideo
-
+    reconnected: bool, 需要重新连接
     """
-    if isinstance(device, str):
-        device = device_connected(device)
+    if isinstance(device, str) and reconnected:
+        device = device_connected(device, True)
         
     try:
         device.app_start(package)
@@ -118,7 +127,35 @@ def remote_control(device, key):
 
 
 def catpture_current_screen(name, cwd=None):
-    """使用 adbutils 模块截图"""
+    """使用 adbutils 模块截图
+    
+    adbutils 源码截图方案：
+    if args.minicap:
+        def adb_shell(cmd: list):
+            print("Run:", " ".join(["adb", "shell"] + cmd))
+            return d.shell(cmd).strip()
+        json_output = adb_shell([
+            "LD_LIBRARY_PATH=/data/local/tmp", "/data/local/tmp/minicap",
+            "-i", "2&>/dev/null"
+        ])
+        if not json_output.startswith("{"):
+            raise RuntimeError("Invalid json format", json_output)
+        data = json.loads(json_output)
+        
+        w, h, r = data["width"], data["height"], data["rotation"]
+        d.shell([
+            "LD_LIBRARY_PATH=/data/local/tmp", "/data/local/tmp/minicap",
+            "-P", "{0}x{1}@{0}x{1}/{2}".format(w, h, r), "-s",
+            ">/sdcard/minicap.jpg"
+        ])
+        d.sync.pull("/sdcard/minicap.jpg", args.screenshot)
+    else:
+        remote_tmp_path = "/data/local/tmp/screenshot.png"
+        d.shell(["rm", remote_tmp_path])
+        d.shell(["screencap", "-p", remote_tmp_path])
+        d.sync.pull(remote_tmp_path, args.screenshot)
+    """
+    # TODO: 需要调整为直接使用 adbutils 的源码提供方案
     if cwd is None:
         cwd = path.abspath(path.curdir)
 
