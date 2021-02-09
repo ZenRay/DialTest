@@ -106,12 +106,3 @@ class MainWindow:
         
         logger.info("初始化界面成功")
 
-
-    # def apply(self, func, args, *, callback=None):
-    #     """回调函数
-
-    #     实现统一接口，接收函数或者参数处理相应的程序封装了该函数
-    #     """
-    #     func(args)
-
-    # TODO: 后续需要解决异步调用封装
