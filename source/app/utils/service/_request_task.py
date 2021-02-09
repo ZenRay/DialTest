@@ -1,6 +1,6 @@
 #coding:utf8
 """
-播测任务请求
+播测任务列表请求
 """
 import asyncio
 import logging
@@ -23,7 +23,7 @@ class DialTask(Request):
 
     继承异步 Request 类
     """
-    async def request(self, *, url=None, method="POST", data=None):
+    async def request(self, *, url=None, method="POST", data=None, json=None):
         """发出播测任务请求"""
-        result = await super().request(url=url, method=method, data=data)
+        result = await super().request(url=url, method=method, data=data, json=json)
         return result
